@@ -1,0 +1,4 @@
+pool-${CONNECTION_NAME} {
+    addrs = ${CONNECTION_POOL_ADDRS}
+    dns = ${CONNECTION_POOL_DNS}
+}

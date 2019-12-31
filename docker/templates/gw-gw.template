@@ -1,0 +1,31 @@
+# https://www.strongswan.org/testing/testresults/swanctl/net2net-cert/
+
+gw-gw {
+    version = 2
+    mobike = no
+    reauth_time = 10800
+    proposals = aes128-sha256-x25519
+    local_addrs = ${IPSEC_SERVER_IP}
+    remote_addrs = ${IPSEC_REMOTE_IP}
+    local {
+        auth = pubkey
+        certs = ${IPSEC_SERVER_CRT}
+        id = ${IPSEC_REMOTE_HOSTNAME}
+    }
+    remote {
+        auth = pubkey
+        id = ${IPSEC_PARTNER_HOSTNAME}
+    }
+    children {
+        net-net {
+            # local_ts  = 10.1.0.0/16 
+            local_ts = ${IPSEC_LOCAL_TS}
+            # remote_ts = 10.2.0.0/16
+            remote_ts = ${IPSEC_REMOTE_TS}
+            rekey_time = 5400
+            rekey_bytes = 500000000
+            rekey_packets = 1000000
+            esp_proposals = aes128gcm128-x25519
+        }
+    }
+}

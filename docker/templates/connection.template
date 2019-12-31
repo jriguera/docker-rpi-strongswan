@@ -1,0 +1,141 @@
+# https://wiki.strongswan.org/projects/strongswan/wiki/Swanctlconf
+
+${CONNECTION_NAME} {
+    # Server bind address.
+    local_addrs  = %any
+    # Start to define a specific VPN connection type using IKEv2.
+    version = 2
+    # By default only one client can connect at the same time with an identical
+    # certificate and/or password combination. Enable this option to disable this behavior.
+    # Allow more than one connection from a given user (the default will break a user's
+    # earlier connections if they bring up a later connection—in general, strongSwan's
+    # defaults are optimised for fixed point-to-point links, rather than client-to-server.
+    unique = no
+    # Assign each client dynamic addresses from an IPv4 or/and an IPv6 pool. The first and last
+    # addresses in each subnet will not be used (i.e. clients here will be assigned addresses
+    # starting with 192.0.2.1 and 2001:db8::1). Note that despite the name, it does not define
+    # the source IP address of the VPN connection—it defines addresses to be assigned within the
+    # VPN tunnel.
+    pools = pool-${CONNECTION_NAME}
+    # List our acceptable encryption and message-integrity algorithms, for the authentication
+    # and key exchange process. The client and server must agree on a mutually-acceptable set
+    # of algorithms according to an ordered list of proposals from the client and the server.
+    # Ultimately, the algorithms used are the first proposal from the client that matches one
+    # of our proposals, i.e. the client's order of preference matters and the server's does not.
+    # Unfortunately, though, Windows (7 and 10 at least) lists its proposals in increasing order
+    # of security, starting with the least secure in the highest-preference position. The exact
+    # order depends on the choice of encryption strength in the client configuration, as follows
+    # (Windows 10):
+    # "Optional encryption" means that Windows will propose (in decreasing order of priority):
+    #     3des-sha1, 3des-sha256, 3des-sha384, aes128-sha1, aes128-sha256, aes128-sha384,
+    #     aes192-sha1, aes192-sha256, aes192-sha384, aes256-sha1, aes256-sha256, aes256-sha384
+    # "Require encryption" or "Maximum-strength encryption" means that Windows will propose:
+    #     3des-sha1, aes256-sha1, 3des-sha256, aes256-sha256, 3des-sha384, aes256-sha384
+    # In other words, if the server allows triple-DES at all, the connection will use it in
+    # preference to AES.
+    # The IKE proposal line is a compromise between allowing connections from older clients and
+    # forcing Windows not to choose poor protocols (i.e. 3DES). It results in Windows 10 clients
+    # using aes256-sha1, and Windows 7 clients using aes128-sha1 (regardless of whether
+    # "Optional" / "Require" / "Maximum-strength" encryption is specified on the client).
+    # The modp stuff refers to the length of the Diffie-Hellman (DH) parameters. Unfortunately,
+    # few clients support better than 1024-bit DH, which is known to be poor (Logjam attack).
+    # For now, this is probably the biggest crypto vulnerability in this setup, but is unavoidable
+    # until clients are fixed. Some clients, such as strongSwan on Android, will make use of the
+    # longest offered DH parameter. However, Android devices appear to be very slow to connect
+    # using longer parameters. The offered maximum of 3072-bit DH is a compromise which allows
+    # for reasonable security and reasonably fast connections.
+    proposals = aes192gcm16-aes128gcm16-prfsha256-ecp256-modp3072,aes192-sha256-ecp256-modp3072,aes256-sha256-modp2048
+    # Do re-key the connection after it's set up, periodically re-keying for additional security)
+    # https://wiki.strongswan.org/projects/strongswan/wiki/ExpiryRekey
+    # Time when rekeying is initiated. If reauth_time is set the default is zero to disable
+    # rekeying. Set both to explicitly rekey and reauthenticate an IKE SA.
+    # reauth_time = 0
+    rekey_time = 0
+    # Make IKEv2 send smaller packets (doing its own application-layer fragmentation)—otherwise
+    # it is prone to sending very large UDP datagrams (e.g. containing the SSL certificate
+    # chain in a single packet) and relying on IP fragmentation to deliver these.
+    # IP fragmentation often doesn't work, and doesn't exist at all in IPv6.
+    fragmentation = yes
+    # Enable Dead Peer Detection (DPD), which periodically checks that the client is still
+    # responding. It's set to a long DPD delay (2400 seconds = 40 minutes) so that MOBIKE
+    # (IKEv2 Mobility and Multihoming) has a chance to work. MOBIKE lets clients change their
+    # (outer) IP address whilst maintaining their VPN connection—a very handy feature for mobile clients.
+    dpd_delay = 2400s
+    # IP protocol 50 (native ESP tunnelled traffic) can't pass through most NAT routers. Ordinarily,
+    # IKEv2 will attempt to detect the presence of a NAT and will switch to UDP-encapsulated ESP.
+    # However, IP protocol 50 might not pass through some non-NAT firewalls, too, which won't be
+    # detected by this means. On the face of it, it would seem a good idea to enable forceencaps=yes
+    # which would use UDP encapsulation for all tunnelled traffic, regardless of the outcome of NAT
+    # detection. However, the Linux kernel does not (currently) implement UDP encapsulation for 
+    # IPv6 ESP, so if your VPN server publishes an IPv6 address, IPv6 clients will fail to connect
+    # if this option is set. We are therefore forced to rely on NAT detection to enable UDP encapsulation
+    # where appropriate. IPv4 clients behind NAT will automatically use UDP; IPv4 clients without NAT
+    # will use IP protocol 50. IPv6 clients can only use IP protocol 50 (but IPv6 NAT is, thankfully,
+    # not a thing we are likely to encounter).
+    encap = yes
+    # Send certificate payloads when using certificate authentication. With the default of ifasked the 
+    # daemon sends certificate payloads only if certificate requests have been received. never disables
+    # sending of certificate payloads altogether, always causes certificate payloads to be sent 
+    # unconditionally whenever certificate authentication is used.
+    send_cert = always
+
+    local {
+        # We authenticate ourselves using a public key stored in a certificate.
+        # The file "certs" must only contain our public key, not the complete certificate chain.
+        # You should put intermediate certificates in cacerts; strongSwan appears to fill in the
+        # intermediate certificates from this directory automatically, 
+        auth = pubkey
+        certs = ${IPSEC_SERVER_CRT}
+        id = ${CRT_SERVER_GENERATE_SAN}
+    }
+    remote {
+        # Require clients to authenticate themselves using EAP-MSCHAPv2. There are several
+        # possible EAP (authentication) protocols, many arguably better than EAP-MSCHAPv2,
+        # but our hands are tied and we must use EAP-MSCHAPv2 if we wish to support a wide
+        # variety of clients. In particular, the strongSwan native Mac OS X client only supports
+        # EAP-MSCHAPv2 and EAP-MD5. Microsoft has deprecated EAP-MD5 in Windows. Don't worry,
+        # though: whilst MSCHAPv2 is in itself a highly dubious authentication protocol
+        # vulnerable to several attacks including fairly easy offline bruteforce, it is secure
+        # in this setup as IKEv2 runs it within a SSL tunnel. EAP-MSCHAPv2 does, unfortunately,
+        # require passwords to be stored either as plaintext or as NTLM hashes (not much better
+        # than plaintext).
+        # Authentication to expect from remote (pubkey, psk, xauth[-backend] or eap[-method]).
+        # auth = eap-mschapv2
+        auth = eap-md5
+        # auth = eap-dynamic
+        # Allow any defined user to connect (provided they're present in secrets).
+        eap_id = %any
+        # Define the other (remote) end of the connection. Allow clients to connect from any IP address.
+    }
+    children {
+        ikev2-eap {
+            # Comma separated list of local traffic selectors to include in CHILD_SA. Each selector is a CIDR
+            # subnet definition, followed by an optional proto/port selector. 
+            # Define default IPv4 and IPv6 routes which will be offered to clients on the remote ("right") side.
+            # The special value dynamic may be used instead of a subnet definition, which gets replaced by the 
+            # tunnel outer address or the virtual IP, if negotiated. This is the default.
+            # local_ts = 10.1.0.0/16
+            # local_ts = 0.0.0.0/0,::/0
+            # Define default IPv4 and IPv6 routes which will be setup to clients on the local ("left") side.
+            # remote_ts = 10.2.0.0/16
+            # On strongSwan startup, load this connection and then wait for clients to connect to it
+            start_action = none
+            # Encryption and message-integrity algorithms must be configured separately for ESP
+            # (the encrypted tunnel set up after authentication and key exchange has completed), because
+            # they're implemented in a different place: strongSwan handles IKE, whereas the Linux kernel
+            # itself handles ESP crypto. I use a similar set of protocols for ESP as for IKE.
+            # For ESP, unlike for IKE, Windows proposes algorithms in decreasing order of security,
+            # preferring the most-secure algorithm, as follows (Windows 10):
+            # "Optional encryption": aes256-sha1, aes128-sha1, 3des-sha1, followed by various
+            #    entirely-insecure proposals (single DES, NULL cipher)
+            # "Require encryption" or "Maximum-strength encryption": aes256-sha1, 3des-sha1
+            esp_proposals = aes192gcm16-aes128gcm16-prfsha256-ecp256-modp3072,aes192-sha256-ecp256-modp3072,aes256-sha256-modp2048
+            # Enable Dead Peer Detection (DPD), which periodically checks that the client is still
+            # responding and if it's not then the IKEv2 session and the IPsec tunnel are cleared.
+            # Action to perform on DPD timeout (clear, trap or restart).
+            dpd_action = clear
+            # Enable IPComp compression before encryption.
+            # ipcomp = yes
+        }
+    }
+}
