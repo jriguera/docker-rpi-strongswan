@@ -135,6 +135,8 @@ pushd docker
     $DOCKER push $DOCKER_TAG
     $DOCKER tag $NAME $DOCKER_TAG:$VERSION
     $DOCKER push $DOCKER_TAG
+
+    $DOCKER save -o "/tmp/$NAME-$VERSION.tgz" $DOCKER_TAG:$VERSION
 popd
 
 # Create annotated tag
@@ -155,38 +157,44 @@ $CHANGELOG
 
 ## Using it
 
-```
-# Http Basic Auth
-TASMOADMIN_AUTH_USER
-TASMOADMIN_AUTH_PASS
-# TasmoAdmin user
-TASMOADMIN_USER
-TASMOADMIN_PASS
-# Enable or disable login
-TASMOADMIN_LOGIN=0
-```
+Variables to enable/disable plugins:
 
-To enable TLS (https), just generate the certificate and key in `certs/tasmoadmin.crt`
-and `certs/tasmoadmin.key` inside the data folder. You can redefine the environment
-variables `TASMOADMIN_TLS_CRT` and `TASMOADMIN_TLS_KEY` to point to a different files.
+    CHARON_PLUGINS_DISABLE="attr-sql stroke eap-sim-file eap-sim eap-radius"
+    CHARON_PLUGINS_ENABLE=""
 
+Define the main variables:
 
-And use them:
+    BASE_DN="C=Home, O=Lar"
+    SERVER_NAME=raspi.lar
+    CONNECTION_NAME=public
+    CONNECTION_DEVICE=eth0
+    CONNECTION_POOL_ADDRS=10.10.10.0/24
+    CONNECTION_POOL_DNS=1.1.1.1,8.8.4.4
 
-```
-docker run --name tasmoad -p 8080:80 -v $(pwd)/datadir:/data -e TASMOADMIN_LOGIN=0 -d jriguera/tasmoadmin
-```
+Given the docker image with name 'strongswan':
+
+    docker run --name vpnserver --privileged  --cap-add net_admin -v $(pwd)/strongswan:/data -p 500:500/udp -p 4500:4500/udp strongswan
+
+Create client
+
+    docker exec -ti vpnserver add-client <username> <password>
 
 EOF
 )
-printf -v DATA '{"tag_name": "v%s","target_commitish": "master","name": "v%s","body": %s,"draft": false, "prerelease": false}' "$VERSION" "$VERSION" "$(echo "$DESC" | $JQ -R -s '@text')"
-$CURL -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/json" -XPOST --data "$DATA" "https://api.github.com/repos/$GITHUB_REPO/releases" > /dev/null
-
-git fetch --tags
+printf -v data '{"tag_name": "v%s","target_commitish": "master","name": "v%s","body": %s,"draft": false, "prerelease": false}' "$VERSION" "$VERSION" "$(echo "$DESC" | $JQ -R -s '@text')"
+releaseid=$($CURL -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/json" -XPOST --data "$data" "https://api.github.com/repos/$GITHUB_REPO/releases" | $JQ '.id')
+# Upload the release
+echo "* Uploading image to Github releases section ... "
+echo -n "  URL: "
+$CURL -H "Authorization: token $GITHUB_TOKEN" -H "Content-Type: application/octet-stream" --data-binary @"/tmp/$NAME-$VERSION.tgz" "https://uploads.github.com/repos/$GITHUB_REPO/releases/$releaseid/assets?name=$NAME-$VERSION.tgz" | $JQ -r '.browser_download_url'
 
 echo
 echo "*** Description https://github.com/$GITHUB_REPO/releases/tag/v$VERSION: "
 echo
 echo "$DESC"
+
+# Delete the release
+rm -f "/tmp/$NAME-$VERSION.tgz"
+git fetch --tags
 
 exit 0
