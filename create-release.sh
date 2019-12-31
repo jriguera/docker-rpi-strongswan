@@ -85,7 +85,7 @@ then
     exit 1
 fi
 
-DOCKER_USER=$(docker info 2> /dev/null  | sed -ne 's/^Username: \(.*\)/\1/p')
+DOCKER_USER=$(docker info 2> /dev/null  | sed -ne 's/Username: \(.*\)/\1/p')
 if [ -z "$DOCKER_USER" ]
 then
     echo "ERROR: Not logged in Docker Hub!"
