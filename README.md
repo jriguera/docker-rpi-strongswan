@@ -148,7 +148,7 @@ Run `./create-publish-release.sh` after defining the `GITHUB_TOKEN` and `docker 
 
 # Author and License
 
-(c) 2020 Jose Riguera, `jriguera@gmail.com`
+(c) 2020 Jose Riguera, jriguera@gmail.com
 
 > Licensed under the Apache License, Version 2.0 (the "License");
 > you may not use this file except in compliance with the License.
